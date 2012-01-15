@@ -1,0 +1,31 @@
+# Emacs/Vim
+*~
+.*.sw[a-z]
+*/#*#
+#*#
+*.org
+
+# Directories
+deps
+bin
+ebin
+log
+doc
+priv
+
+# EUnit
+.eunit
+
+# Dialyzer
+*.plt
+
+# Compiled
+*.o
+*.beam
+
+# Logging
+*.dump
+*.log
+
+# OSX
+.DS_Store
