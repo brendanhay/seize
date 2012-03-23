@@ -59,13 +59,12 @@ stderr_test() ->
 %%
 
 word() ->
-    non_empty(list(oneof(lists:seq($a, $z)
+    non_empty(list(union(lists:seq($a, $z)
                          ++ lists:seq($A, $Z)
                          ++ lists:seq($0, $9)
                          ++ "_"))).
 
-long_string() ->
-    ?SIZED(Size, resize(Size * 20, word())).
+long_string() -> ?SIZED(Size, resize(Size * 20, word())).
 
 %%
 %% Helpers
