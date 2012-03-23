@@ -20,4 +20,4 @@ test: build
 	$(REBAR) skip_deps=true eunit
 
 boot:
-	exec erl -pa ebin -sname seize
+	exec erl -pa ../seize/ebin -sname seize
