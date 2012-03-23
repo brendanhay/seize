@@ -1,43 +1,35 @@
+#define _POSIX_C_SOURCE 200809L
+#include <errno.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <unistd.h>
+#include <signal.h>
 #include <sys/wait.h>
+#include <sys/select.h>
+#include <unistd.h>
 #include <ei.h>
 
-#define ARGS_ERR 221
-#define PIPE_ERR 222
-#define FORK_ERR 223
-#define EXEC_ERR 224
-#define WAIT_ERR 225
+/* erlang packet header size (contains packet size information) */
+#define ERL_HEADER_SIZE 2
 
-#define BUFSIZE 1024
+/* fd read buffer size */
+#define READ_BUF_SIZE 64
 
-#define CHILDOUT_READ  out_pipe[0]
-#define CHILDOUT_WRITE out_pipe[1]
-#define CHILDERR_READ  err_pipe[0]
-#define CHILDERR_WRITE err_pipe[1]
+typedef enum {
+  ARGS_ERR = 221,
+  PIPE_ERR,
+  FORK_ERR,
+  EXEC_ERR,
+  WAIT_ERR,
+  READ_ERR,
+  BIN_ERR
+} error_code_t;
 
-void write_packet(char *buf, int sz, FILE *fd)
-{
-  uint8_t hd[4];
-
-  /* the packet header must be in network byte order */
-  hd[0] = (sz >> 24) & 0xff;
-  hd[1] = (sz >> 16) & 0xff;
-  hd[2] = (sz >> 8) & 0xff;
-  hd[3] = sz & 0xff;
-
-  fwrite(hd, 1, 4, fd);
-  fwrite(buf, 1, sz, fd);
-  fflush(fd);
-}
-
-char *error_text(const long status)
+char *parse_error(const error_code_t code)
 {
   char *text;
 
-  switch (status) {
+  switch (code) {
     case ARGS_ERR:
       text = "incorrect number of arguments";
       break;
@@ -48,10 +40,16 @@ char *error_text(const long status)
       text = "failed to fork child";
       break;
     case EXEC_ERR:
-      text = "failed to exec command";
+      text = "failed to execute command";
       break;
     case WAIT_ERR:
       text = "failed to wait for child exit status";
+      break;
+    case READ_ERR:
+      text = "failed to read child fd";
+      break;
+    case BIN_ERR:
+      text = "binary to execute not found";
       break;
     default:
       text = "";
@@ -61,35 +59,35 @@ char *error_text(const long status)
   return text;
 }
 
-void send_response(const long status, const char *out, const char *err)
+void write_packet(char *buf, int sz, FILE *fd)
 {
-  char *text;
+  uint8_t hd[ERL_HEADER_SIZE];
+
+  /* the packet header must be in network byte order */
+  hd[0] = (sz >> 8) & 0xff;
+  hd[1] = sz & 0xff;
+
+  fwrite(hd, 1, ERL_HEADER_SIZE, fd);
+  fwrite(buf, 1, sz, fd);
+  fflush(fd);
+}
+
+void write_error(const error_code_t code)
+{
   ei_x_buff buf;
 
   /* initialize the state and the output buffer */
   ei_x_new_with_version(&buf);
 
-  /* {ok, ..., ...} tuple */
-  ei_x_encode_tuple_header(&buf, 4);
-  ei_x_encode_atom(&buf, (status == 0 ? "ok" : "error"));
+  /* {error, ..., ...} */
+  ei_x_encode_tuple_header(&buf, 3);
+  ei_x_encode_atom(&buf, "error");
 
-  /* parse exit code */
-  text = error_text(status);
+  /* exit_code */
+  ei_x_encode_long(&buf, code);
 
-  if (strlen(text) < 1)
-    ei_x_encode_long(&buf, status);
-  else
-    ei_x_encode_string(&buf, text);
-
-  /* {stdout, ...} tuple */
-  ei_x_encode_tuple_header(&buf, 2);
-  ei_x_encode_atom(&buf, "stdout");
-  ei_x_encode_string(&buf, out);
-
-  /* {stderr, ...} tuple */
-  ei_x_encode_tuple_header(&buf, 2);
-  ei_x_encode_atom(&buf, "stderr");
-  ei_x_encode_string(&buf, err);
+  /* text string describing c error, or blank */
+  ei_x_encode_string(&buf, parse_error(code));
 
   /* output result */
   write_packet(buf.buff, buf.buffsz, stdout);
@@ -97,23 +95,142 @@ void send_response(const long status, const char *out, const char *err)
   ei_x_free(&buf);
 }
 
-void handle_error(const long status)
+void handle_error(const error_code_t code)
 {
-  char *blank = "";
+  /* write the error to stdout using ei */
+  write_error(code);
 
-  send_response(status, blank, blank);
-  exit(status);
+  /* terminate by parent - see exit vs _exit */
+  exit(code);
 }
+
+void write_data(const char *name, const char *p, int len)
+{
+  ei_x_buff buf;
+
+  /* initialize the state and the output buffer */
+  ei_x_new_with_version(&buf);
+
+  /* {..., ...} */
+  ei_x_encode_tuple_header(&buf, 2);
+  ei_x_encode_atom(&buf, name);
+  ei_x_encode_binary(&buf, p, len);
+
+  /* output result */
+  write_packet(buf.buff, buf.buffsz, stdout);
+
+  ei_x_free(&buf);
+}
+
+int read_pipe(const char *name, int fd)
+{
+  char buf[READ_BUF_SIZE];
+  int  io;
+
+  if ((io = read(fd, buf, READ_BUF_SIZE)) > 0)
+    write_data(name, buf, io);
+
+  return io;
+}
+
+/* calculate the highest fd+1, for p/select num of fds */
+int max_fd(int out_fd, int err_fd)
+{
+  if (out_fd > err_fd)
+    return out_fd + 1;
+
+  return err_fd + 1;
+}
+
+/* SIGTERM handler */
+void sigterm(int signo)
+{
+  (void)signo;
+}
+
+struct sigaction setup_sigaction(sigset_t *sigset, sigset_t *oldset)
+{
+  struct sigaction s;
+
+  /* setup sighandler for SIGTERM */
+  s.sa_handler = sigterm;
+  sigemptyset(&s.sa_mask);
+  s.sa_flags = 0;
+  sigaction(SIGTERM, &s, NULL);
+
+  /* block SIGTERM */
+  sigemptyset(sigset);
+  sigaddset(sigset, SIGTERM);
+  sigprocmask(SIG_BLOCK, sigset, oldset);
+
+  return s;
+}
+
+void select_pipes(int out_fd, int err_fd)
+{
+  struct sigaction s;
+  sigset_t sigset;
+  sigset_t oldset;
+  fd_set   set;
+  int      ready;
+  int      nfds;
+
+  /* setup the sigaction and block on SIGTERM */
+  s = setup_sigaction(&sigset, &oldset);
+
+  /* calc the number of fds to select over */
+  nfds = max_fd(out_fd, err_fd);
+
+  while (1) {
+    int io = 0;
+
+    /* init the file descriptor set. */
+    FD_ZERO(&set);
+
+    /* reset the fds */
+    FD_SET(out_fd, &set);
+    FD_SET(err_fd, &set);
+
+    /* continue until signaled */
+    ready = pselect(nfds, &set, NULL, NULL, NULL, &oldset);
+
+    /* pselect error or no data */
+    if (ready <= 0)
+      break;
+
+    /* check stdout */
+    if (FD_ISSET(out_fd, &set))
+      io += read_pipe("stdout", out_fd);
+
+    /* check stderr */
+    if (FD_ISSET(err_fd, &set))
+      io += read_pipe("stderr", err_fd);
+
+    /* no data on either pipe or EINTR */
+    if (io == 0 || errno == EINTR)
+      break;
+  }
+}
+
+/* sugar to make sense of which end of the pipe is which */
+#define CHILD_OUT_READ  out_pipe[0]
+#define CHILD_OUT_WRITE out_pipe[1]
+#define CHILD_ERR_READ  err_pipe[0]
+#define CHILD_ERR_WRITE err_pipe[1]
 
 int main(int argc, char **argv)
 {
-  int out_pipe[2];
-  int err_pipe[2];
+  int   out_pipe[2];
+  int   err_pipe[2];
   pid_t child;
 
-  /* check the argv length, 1=file, 2=search_path, 3...=args */
-  if (argc < 3)
+  /* check the argv length, 1=file, 2...=args */
+  if (argc < 2)
     handle_error(ARGS_ERR);
+
+  /* check the requested binary can be found, and executed */
+  if (access(argv[1], X_OK) != 0)
+    handle_error(BIN_ERR);
 
   /* create pipe to capture child stdout */
   if (pipe(out_pipe) < 0)
@@ -121,8 +238,9 @@ int main(int argc, char **argv)
 
   /* create pipe to capture child stderr */
   if (pipe(err_pipe) < 0) {
-    close(CHILDOUT_READ);
-    close(CHILDOUT_WRITE);
+    close(CHILD_OUT_READ);
+    close(CHILD_OUT_WRITE);
+
     handle_error(PIPE_ERR);
   }
 
@@ -136,50 +254,41 @@ int main(int argc, char **argv)
     close(STDERR_FILENO);
 
     /* assign the write ends of the pipe to the child */
-    dup2(CHILDOUT_WRITE, STDOUT_FILENO);
-    dup2(CHILDERR_WRITE, STDERR_FILENO);
+    dup2(CHILD_OUT_WRITE, STDOUT_FILENO);
+    dup2(CHILD_ERR_WRITE, STDERR_FILENO);
 
     /* close the pipe ends in the child */
-    close(CHILDOUT_READ);
-    close(CHILDOUT_WRITE);
-    close(CHILDERR_READ);
-    close(CHILDERR_WRITE);
-
-    /* TODO: correct parse incoming argv for *rest args */
-    char *args[] = {
-      argv[1],
-      argv[2],
-      NULL
-    };
+    close(CHILD_OUT_READ);
+    close(CHILD_OUT_WRITE);
+    close(CHILD_ERR_READ);
+    close(CHILD_ERR_WRITE);
 
     /* exec */
-    execv(args[0], (char**)args);
+    execv(argv[1], argv + 1);
 
     _exit(EXEC_ERR);
   } else {
     int status;
-    char out[BUFSIZ];
-    char err[BUFSIZ];
 
     /* close the write ends of the pipes being used by the child */
-    close(CHILDOUT_WRITE);
-    close(CHILDERR_WRITE);
+    close(CHILD_OUT_WRITE);
+    close(CHILD_ERR_WRITE);
 
-    /* read from child read pipes into variables, and terminate the string */
-    out[read(CHILDOUT_READ, out, sizeof(out))] = '\0';
-    err[read(CHILDERR_READ, err, sizeof(err))] = '\0';
+    /* read all available bytes from the child fds */
+    select_pipes(CHILD_OUT_READ, CHILD_ERR_READ);
 
     /* close the read end of the pipes */
-    close(CHILDOUT_READ);
-    close(CHILDERR_READ);
+    close(CHILD_OUT_READ);
+    close(CHILD_ERR_READ);
 
-    wait(&status);
+    /* wait for the child and grab it's exit status */
+    waitpid(child, &status, 0);
 
-    if (WIFEXITED(status)) {
-      send_response(WEXITSTATUS(status), out, err);
-    } else {
-      handle_error(WAIT_ERR);
-    }
+    /* need to propogate this to the unforked process */
+    if (WIFEXITED(status))
+      exit(WEXITSTATUS(status));
+    else
+      exit(WAIT_ERR);
   }
 
   return 0;
