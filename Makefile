@@ -1,15 +1,23 @@
 REBAR=`which rebar`
 
-.PHONY: deps build
+.PHONY: build
 
-all: deps build
+all: build
 
 clean:
-	rm -rf ./**/ebin log doc erl_crash.dump ./**/erl_crash.dump
+	rm -rf ebin log doc erl_crash.dump
 	$(REBAR) clean
+
+build: deps
+	$(REBAR) compile
+	$(REBAR) skip_deps=true xref
 
 deps:
 	$(REBAR) get-deps
 
-build:
-	$(REBAR) compile
+test: build
+	rm -rf .eunit
+	$(REBAR) skip_deps=true eunit
+
+boot:
+	exec erl -pa ebin -sname muxer
