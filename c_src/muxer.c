@@ -5,6 +5,7 @@
  * you can obtain it at http://mozilla.org/MPL/2.0/.
  *
  * Copyright (c) 2012 Brendan Hay <brendan@soundcloud.com>
+ *
  */
 
 #define _POSIX_C_SOURCE 200809L
