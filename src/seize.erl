@@ -1,7 +1,7 @@
 %% @doc Run system commands via ports.
 %% Links the calling process to the resulting port, exit messages
 %% need to be trapped and handled by the caller.
--module(muxer).
+-module(seize).
 
 %% API
 -export([cmd/1,
@@ -16,7 +16,7 @@
 -export_types([port_arg/0,
                port_response/0]).
 
--define(CMUXER,  filename:join([code:lib_dir(muxer), "priv/muxer"])).
+-define(CMUXER,  filename:join([code:lib_dir(seize), "priv/seize"])).
 -define(TIMEOUT, 120 * 1000).
 
 %%
@@ -34,8 +34,8 @@ cmd(Cmd, Args) -> cmd(Cmd, Args, ?TIMEOUT).
 -spec cmd(string(), port_arg(), non_neg_integer()) -> port_response().
 %% @doc
 cmd(Cmd, Args, Timeout) ->
-    Muxer = string:join([?CMUXER, Cmd, parse_args(Args)], " "),
-    execute(string:strip(Muxer, right), Timeout).
+    Seize = string:join([?CMUXER, Cmd, parse_args(Args)], " "),
+    execute(string:strip(Seize, right), Timeout).
 
 %%
 %% Private

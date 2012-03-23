@@ -1,7 +1,7 @@
-Muxer
+Seize
 =======
 
-[![Build Status](https://secure.travis-ci.org/brendanhay/muxer.png)](http://travis-ci.org/brendanhay/muxer)
+[![Build Status](https://secure.travis-ci.org/brendanhay/seize.png)](http://travis-ci.org/brendanhay/seize)
 
 
 <a name="contribute" />
@@ -9,7 +9,7 @@ Muxer
 Contribute
 ----------
 
-For any problems, comments or feedback please create an issue [here on GitHub](github.com/brendanhay/muxer/issues).
+For any problems, comments or feedback please create an issue [here on GitHub](github.com/brendanhay/seize/issues).
 
 
 <a name="licence" />
@@ -17,4 +17,4 @@ For any problems, comments or feedback please create an issue [here on GitHub](g
 Licence
 -------
 
-Muxer is released under the [Mozilla Public License Version 2.0](http://www.mozilla.org/MPL/)
+Seize is released under the [Mozilla Public License Version 2.0](http://www.mozilla.org/MPL/)

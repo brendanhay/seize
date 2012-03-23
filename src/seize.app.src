@@ -1,6 +1,6 @@
-{application, muxer,
+{application, seize,
  [
-  {description, "Muxer"},
+  {description, "Seize"},
   {vsn, "0.1.0"},
   {modules, []},
   {registered, []},
