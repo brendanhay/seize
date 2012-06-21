@@ -1,11 +1,10 @@
-{application, seize,
- [
-  {description, "Seize"},
-  {vsn, "0.1.0"},
-  {modules, []},
-  {registered, []},
-  {applications, [
-      kernel,
-      stdlib
-  ]}
- ]}.
+{application, seize, [
+    {description, "Seize"},
+    {vsn, "0.1.1"},
+    {modules, []},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib
+    ]}
+]}.
