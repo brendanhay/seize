@@ -1,3 +1,7 @@
+#
+# Targets
+#
+
 REBAR=`which rebar`
 
 .PHONY: build
@@ -21,3 +25,16 @@ test: build
 
 boot:
 	exec erl -pa ../seize/ebin -sname seize
+
+
+#
+# C
+#
+
+valgrind: build
+	valgrind --tool=memcheck --leak-check=full priv/seize /bin/ls /bin
+
+splint: build
+	splint +posixstrictlib -I /usr/local/Cellar/erlang/R15B01/lib/erlang/lib/erl_interface-3.7.7/include c_src/*.c
+
+

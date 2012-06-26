@@ -9,12 +9,12 @@
  */
 
 #define _POSIX_C_SOURCE 200809L
+
 #include <errno.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <signal.h>
-#include <sys/wait.h>
 #include <sys/select.h>
 #include <unistd.h>
 #include <ei.h>
